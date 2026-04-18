@@ -53,7 +53,7 @@ Run from the **repository root** (or adjust paths). The zip must contain `health
 
 ```bash
 export AWS_PROFILE=leaf-blower
-export AWS_REGION=us-east-1
+export AWS_REGION=us-west-2
 export BUCKET=your-artifact-bucket
 export PREFIX=your-unique-cognito-domain-prefix
 STAMP=$(date +%s)

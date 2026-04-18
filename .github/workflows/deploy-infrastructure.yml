@@ -22,7 +22,7 @@ permissions:
   id-token: write
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: us-west-2
   STACK_NAME: leaf-blower-dev
 
 jobs:
