@@ -38,7 +38,7 @@ Templates live in [cloudformation/template.yaml](cloudformation/template.yaml). 
 | `AWS_ACCESS_KEY_ID` | IAM user path (default) |
 | `AWS_SECRET_ACCESS_KEY` | IAM user path (default) |
 | `AWS_ROLE_ARN` | OIDC path only (`AWS_AUTH_METHOD=oidc`) |
-| `ARTIFACT_BUCKET` | Always |
+| `ARTIFACT_BUCKET` | Always — **or** set repository **variable** `ARTIFACT_BUCKET` (bucket names are not secret; variables are easier to edit) |
 | `COGNITO_DOMAIN_PREFIX` | Always (e.g. `leaf-blower-dev-yourname`) |
 
 | Variable | Purpose |

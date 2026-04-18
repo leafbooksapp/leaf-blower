@@ -47,6 +47,17 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Resolve artifact bucket
+        run: |
+          set -euo pipefail
+          B="${{ secrets.ARTIFACT_BUCKET }}"
+          if [ -z "$B" ]; then B="${{ vars.ARTIFACT_BUCKET }}"; fi
+          if [ -z "$B" ]; then
+            echo "::error::Set repository secret ARTIFACT_BUCKET or repository variable ARTIFACT_BUCKET to your S3 bucket name (create the bucket in AWS first; same region as the stack)."
+            exit 1
+          fi
+          echo "BUCKET=$B" >> "$GITHUB_ENV"
+
       - name: Package Lambda (Python)
         run: |
           set -euo pipefail
@@ -54,11 +65,8 @@ jobs:
           zip -r "${GITHUB_WORKSPACE}/lambda.zip" .
 
       - name: Upload Lambda package to S3
-        env:
-          BUCKET: ${{ secrets.ARTIFACT_BUCKET }}
         run: |
           set -euo pipefail
-          test -n "${BUCKET:-}" || { echo "Set repository secret ARTIFACT_BUCKET"; exit 1; }
           KEY="leaf-blower/lambda-${GITHUB_SHA}.zip"
           aws s3 cp "${GITHUB_WORKSPACE}/lambda.zip" "s3://${BUCKET}/${KEY}"
           echo "LAMBDA_KEY=${KEY}" >> "${GITHUB_ENV}"
@@ -66,11 +74,9 @@ jobs:
       - name: Deploy CloudFormation stack
         env:
           PREFIX: ${{ secrets.COGNITO_DOMAIN_PREFIX }}
-          BUCKET: ${{ secrets.ARTIFACT_BUCKET }}
         run: |
           set -euo pipefail
           test -n "${PREFIX:-}" || { echo "Set repository secret COGNITO_DOMAIN_PREFIX (globally unique per region)"; exit 1; }
-          test -n "${BUCKET:-}" || { echo "Set repository secret ARTIFACT_BUCKET"; exit 1; }
           aws cloudformation deploy \
             --template-file infra/cloudformation/template.yaml \
             --stack-name "${STACK_NAME}" \
