@@ -47,7 +47,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Resolve artifact bucket
+      - name: Resolve deployment config
         run: |
           set -euo pipefail
           B="${{ secrets.ARTIFACT_BUCKET }}"
@@ -57,6 +57,14 @@ jobs:
             exit 1
           fi
           echo "BUCKET=$B" >> "$GITHUB_ENV"
+
+          P="${{ secrets.COGNITO_DOMAIN_PREFIX }}"
+          if [ -z "$P" ]; then P="${{ vars.COGNITO_DOMAIN_PREFIX }}"; fi
+          if [ -z "$P" ]; then
+            echo "::error::Set repository secret COGNITO_DOMAIN_PREFIX or repository variable COGNITO_DOMAIN_PREFIX (globally unique in this AWS region; lowercase letters, numbers, hyphens; e.g. leaf-blower-dev-yourname)."
+            exit 1
+          fi
+          echo "PREFIX=$P" >> "$GITHUB_ENV"
 
       - name: Package Lambda (Python)
         run: |
@@ -72,11 +80,8 @@ jobs:
           echo "LAMBDA_KEY=${KEY}" >> "${GITHUB_ENV}"
 
       - name: Deploy CloudFormation stack
-        env:
-          PREFIX: ${{ secrets.COGNITO_DOMAIN_PREFIX }}
         run: |
           set -euo pipefail
-          test -n "${PREFIX:-}" || { echo "Set repository secret COGNITO_DOMAIN_PREFIX (globally unique per region)"; exit 1; }
           aws cloudformation deploy \
             --template-file infra/cloudformation/template.yaml \
             --stack-name "${STACK_NAME}" \

@@ -13,7 +13,7 @@ Templates live in [cloudformation/template.yaml](cloudformation/template.yaml). 
    - `iam:PassRole` on the Lambda execution role ARN created/used by the stack
    - `lambda:*`, `apigateway:*`, `cognito-idp:*` as needed for stack create/update
    - `s3:PutObject` (and list/get as needed) on the artifact bucket
-4. A **globally unique** `CognitoDomainPrefix` per region (GitHub secret `COGNITO_DOMAIN_PREFIX`).
+4. A **globally unique** `CognitoDomainPrefix` per AWS region (GitHub secret or variable `COGNITO_DOMAIN_PREFIX` — this becomes your Cognito Hosted UI domain prefix, e.g. `leaf-blower-dev-yourname`).
 
 ### IAM user `github-user` (recommended if OIDC is not set up)
 
@@ -39,7 +39,7 @@ Templates live in [cloudformation/template.yaml](cloudformation/template.yaml). 
 | `AWS_SECRET_ACCESS_KEY` | IAM user path (default) |
 | `AWS_ROLE_ARN` | OIDC path only (`AWS_AUTH_METHOD=oidc`) |
 | `ARTIFACT_BUCKET` | Always — **or** set repository **variable** `ARTIFACT_BUCKET` (bucket names are not secret; variables are easier to edit) |
-| `COGNITO_DOMAIN_PREFIX` | Always (e.g. `leaf-blower-dev-yourname`) |
+| `COGNITO_DOMAIN_PREFIX` | Always — **or** repository **variable** `COGNITO_DOMAIN_PREFIX` (same value; not a password) |
 
 | Variable | Purpose |
 | -------- | -------- |
