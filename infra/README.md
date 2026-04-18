@@ -4,21 +4,46 @@ Templates live in [cloudformation/template.yaml](cloudformation/template.yaml). 
 
 ## What you need in AWS (account `075723833107` or your target)
 
-1. **S3 bucket** for Lambda artifacts (same region as the stack, e.g. `us-east-1`). The GitHub OIDC role must allow `s3:PutObject` (and `s3:GetObject` if you use console) on that bucket/prefix.
-2. **IAM role for GitHub OIDC** trusted by `token.actions.githubusercontent.com`, with:
-   - `cloudformation:*` for the stack (scoped policies recommended in production)
-   - `iam:PassRole` for the Lambda execution role created by the stack
-   - `lambda:*` as required for stack updates
-   - `apigateway:*`, `cognito-idp:*`, `s3:PutObject` on the artifact bucket
-3. A **globally unique** `CognitoDomainPrefix` per region (set as GitHub secret `COGNITO_DOMAIN_PREFIX`).
+1. **S3 bucket** for Lambda artifacts (same region as the stack, e.g. `us-east-1`). CI needs `s3:PutObject` (and usually `s3:GetObject`) on that bucket/prefix.
+2. **AWS credentials for GitHub Actions** — choose **one**:
+   - **IAM user (simplest):** e.g. user `github-user` with an access key stored in GitHub secrets (see below). Do **not** set repository variable `AWS_AUTH_METHOD` to `oidc`.
+   - **IAM role + OIDC:** no long-lived keys; set repository variable `AWS_AUTH_METHOD` to `oidc` and secret `AWS_ROLE_ARN`. The role’s trust policy must allow `token.actions.githubusercontent.com` for this repo.
+3. Permissions for that principal (tighten for production):
+   - `cloudformation:*` on the stack (or scoped stack ARN)
+   - `iam:PassRole` on the Lambda execution role ARN created/used by the stack
+   - `lambda:*`, `apigateway:*`, `cognito-idp:*` as needed for stack create/update
+   - `s3:PutObject` (and list/get as needed) on the artifact bucket
+4. A **globally unique** `CognitoDomainPrefix` per region (GitHub secret `COGNITO_DOMAIN_PREFIX`).
+
+### IAM user `github-user` (recommended if OIDC is not set up)
+
+1. IAM → Users → Create user → name e.g. `github-user` (programmatic access only is fine).
+2. Attach policies or an inline policy granting the permissions above (for a dev account, some teams use `AdministratorAccess` temporarily; prefer least privilege).
+3. Security credentials → Create access key → **Access key** + **Secret access key** (copy once).
+4. In the GitHub repo → **Settings → Secrets and variables → Actions**, add:
+   - `AWS_ACCESS_KEY_ID` — access key id  
+   - `AWS_SECRET_ACCESS_KEY` — secret access key  
+5. Leave **repository variable** `AWS_AUTH_METHOD` **unset** (or set to anything other than `oidc`) so the workflow uses these secrets.
+
+### OIDC (optional)
+
+1. Create an IAM role trusted by GitHub OIDC for this repository.
+2. Set repository variable **`AWS_AUTH_METHOD`** = `oidc`.
+3. Set secret **`AWS_ROLE_ARN`** to that role’s ARN.
 
 ## GitHub repository secrets
 
-| Secret | Purpose |
-| ------ | -------- |
-| `AWS_ROLE_ARN` | IAM role ARN for OIDC (e.g. `arn:aws:iam::075723833107:role/github-actions-leaf-blower`) |
-| `ARTIFACT_BUCKET` | Bucket name for Lambda zips |
-| `COGNITO_DOMAIN_PREFIX` | e.g. `leaf-blower-dev-yourname` (must satisfy Cognito domain rules) |
+| Secret | When |
+| ------ | ---- |
+| `AWS_ACCESS_KEY_ID` | IAM user path (default) |
+| `AWS_SECRET_ACCESS_KEY` | IAM user path (default) |
+| `AWS_ROLE_ARN` | OIDC path only (`AWS_AUTH_METHOD=oidc`) |
+| `ARTIFACT_BUCKET` | Always |
+| `COGNITO_DOMAIN_PREFIX` | Always (e.g. `leaf-blower-dev-yourname`) |
+
+| Variable | Purpose |
+| -------- | -------- |
+| `AWS_AUTH_METHOD` | Set to `oidc` to use `AWS_ROLE_ARN`; leave unset for IAM user keys |
 
 Optional: change `STACK_NAME` and `AWS_REGION` in [../.github/workflows/deploy-infrastructure.yml](../.github/workflows/deploy-infrastructure.yml).
 

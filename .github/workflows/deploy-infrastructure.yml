@@ -1,5 +1,9 @@
 # Deploy leaf-blower stack (CloudFormation). This workflow lives in the leaf-blower repo; paths are repo-relative.
-# Prerequisites: GitHub OIDC role, S3 artifact bucket, repository secrets (see infra/README.md).
+#
+# AWS auth (pick one):
+# - IAM user (default): secrets AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (e.g. user `github-user`).
+# - OIDC: set repo variable AWS_AUTH_METHOD=oidc and secret AWS_ROLE_ARN (requires IAM trust for GitHub).
+# See infra/README.md.
 
 name: Deploy infrastructure
 
@@ -14,8 +18,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write
   contents: read
+  id-token: write
 
 env:
   AWS_REGION: us-east-1
@@ -29,9 +33,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
+        if: ${{ vars.AWS_AUTH_METHOD == 'oidc' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials (IAM user)
+        if: ${{ vars.AWS_AUTH_METHOD != 'oidc' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Package Lambda (Python)
