@@ -1,0 +1,71 @@
+# Deploy leaf-blower stack (CloudFormation). This workflow lives in the leaf-blower repo; paths are repo-relative.
+# Prerequisites: GitHub OIDC role, S3 artifact bucket, repository secrets (see infra/README.md).
+
+name: Deploy infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'infra/**'
+      - '.github/workflows/deploy-infrastructure.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: leaf-blower-dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package Lambda (Python)
+        run: |
+          set -euo pipefail
+          cd src
+          zip -r "${GITHUB_WORKSPACE}/lambda.zip" .
+
+      - name: Upload Lambda package to S3
+        env:
+          BUCKET: ${{ secrets.ARTIFACT_BUCKET }}
+        run: |
+          set -euo pipefail
+          test -n "${BUCKET:-}" || { echo "Set repository secret ARTIFACT_BUCKET"; exit 1; }
+          KEY="leaf-blower/lambda-${GITHUB_SHA}.zip"
+          aws s3 cp "${GITHUB_WORKSPACE}/lambda.zip" "s3://${BUCKET}/${KEY}"
+          echo "LAMBDA_KEY=${KEY}" >> "${GITHUB_ENV}"
+
+      - name: Deploy CloudFormation stack
+        env:
+          PREFIX: ${{ secrets.COGNITO_DOMAIN_PREFIX }}
+          BUCKET: ${{ secrets.ARTIFACT_BUCKET }}
+        run: |
+          set -euo pipefail
+          test -n "${PREFIX:-}" || { echo "Set repository secret COGNITO_DOMAIN_PREFIX (globally unique per region)"; exit 1; }
+          test -n "${BUCKET:-}" || { echo "Set repository secret ARTIFACT_BUCKET"; exit 1; }
+          aws cloudformation deploy \
+            --template-file infra/cloudformation/template.yaml \
+            --stack-name "${STACK_NAME}" \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              "CognitoDomainPrefix=${PREFIX}" \
+              "LambdaCodeBucket=${BUCKET}" \
+              "LambdaCodeKey=${LAMBDA_KEY}" \
+              "DeploymentNonce=${GITHUB_SHA}" \
+            --region "${AWS_REGION}"
