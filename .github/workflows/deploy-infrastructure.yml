@@ -66,6 +66,8 @@ jobs:
           fi
           echo "PREFIX=$P" >> "$GITHUB_ENV"
 
+          echo "GOOGLE_BOOKS_API_KEY=${{ secrets.GOOGLE_BOOKS_API_KEY }}" >> "$GITHUB_ENV"
+
       - name: Package Lambda (Python)
         run: |
           set -euo pipefail
@@ -92,4 +94,5 @@ jobs:
               "LambdaCodeBucket=${BUCKET}" \
               "LambdaCodeKey=${LAMBDA_KEY}" \
               "DeploymentNonce=${GITHUB_SHA}" \
+              "GoogleBooksApiKey=${GOOGLE_BOOKS_API_KEY}" \
             --region "${AWS_REGION}"

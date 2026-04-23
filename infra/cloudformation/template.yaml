@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Leaf backend - Cognito, REST API (JWT + cache on GET /health), Python Lambdas (pure CloudFormation).
+Description: Leaf backend - Cognito, single Lambda router, API Gateway (pure CloudFormation).
 
 Parameters:
   CognitoDomainPrefix:
@@ -16,8 +16,16 @@ Parameters:
     Type: String
     Default: '1'
     Description: Change (e.g. git SHA) to force a new API Gateway deployment when needed.
+  GoogleBooksApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Google Books API key for book search (optional; falls back to Open Library if omitted).
 
 Resources:
+
+  # ── Cognito ──────────────────────────────────────────────────────────────────
+
   UserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -72,6 +80,8 @@ Resources:
       Domain: !Ref CognitoDomainPrefix
       UserPoolId: !Ref UserPool
 
+  # ── IAM ───────────────────────────────────────────────────────────────────────
+
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -85,35 +95,27 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
-  HealthFunction:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub '${AWS::StackName}-health'
-      Runtime: python3.12
-      Architectures:
-        - arm64
-      Handler: health.lambda_handler
-      Role: !GetAtt LambdaExecutionRole.Arn
-      Timeout: 10
-      MemorySize: 128
-      Code:
-        S3Bucket: !Ref LambdaCodeBucket
-        S3Key: !Ref LambdaCodeKey
+  # ── Lambda ────────────────────────────────────────────────────────────────────
 
-  MeFunction:
+  AppFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub '${AWS::StackName}-me'
+      FunctionName: !Sub '${AWS::StackName}-app'
       Runtime: python3.12
       Architectures:
         - arm64
-      Handler: me.lambda_handler
+      Handler: router.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: 10
       MemorySize: 128
       Code:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: !Ref LambdaCodeKey
+      Environment:
+        Variables:
+          GOOGLE_BOOKS_API_KEY: !Ref GoogleBooksApiKey
+
+  # ── API Gateway ───────────────────────────────────────────────────────────────
 
   RestApi:
     Type: AWS::ApiGateway::RestApi
@@ -123,60 +125,30 @@ Resources:
         Types:
           - REGIONAL
 
-  CognitoAuthorizer:
-    Type: AWS::ApiGateway::Authorizer
-    Properties:
-      Name: CognitoAuthorizer
-      RestApiId: !Ref RestApi
-      Type: COGNITO_USER_POOLS
-      ProviderARNs:
-        - !GetAtt UserPool.Arn
-      IdentitySource: method.request.header.Authorization
-
-  HealthResource:
+  ProxyResource:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref RestApi
       ParentId: !GetAtt RestApi.RootResourceId
-      PathPart: health
+      PathPart: '{proxy+}'
 
-  MeResource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref RestApi
-      ParentId: !GetAtt RestApi.RootResourceId
-      PathPart: me
-
-  HealthGetMethod:
+  ProxyMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref RestApi
-      ResourceId: !Ref HealthResource
-      HttpMethod: GET
+      ResourceId: !Ref ProxyResource
+      HttpMethod: ANY
       AuthorizationType: NONE
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
-        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HealthFunction.Arn}/invocations
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AppFunction.Arn}/invocations
 
-  MeGetMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref RestApi
-      ResourceId: !Ref MeResource
-      HttpMethod: GET
-      AuthorizationType: COGNITO_USER_POOLS
-      AuthorizerId: !Ref CognitoAuthorizer
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MeFunction.Arn}/invocations
+  # ── Deployment & stage ────────────────────────────────────────────────────────
 
   ApiDeployment:
     Type: AWS::ApiGateway::Deployment
-    DependsOn:
-      - HealthGetMethod
-      - MeGetMethod
+    DependsOn: ProxyMethod
     Properties:
       RestApiId: !Ref RestApi
       Description: !Ref DeploymentNonce
@@ -188,28 +160,14 @@ Resources:
       DeploymentId: !Ref ApiDeployment
       StageName: prod
       TracingEnabled: true
-      CacheClusterEnabled: true
-      CacheClusterSize: '0.5'
-      MethodSettings:
-        - ResourcePath: /health
-          HttpMethod: GET
-          CachingEnabled: true
-          CacheDataEncrypted: true
-          CacheTtlInSeconds: 60
 
-  HealthLambdaPermission:
+  # ── Lambda invoke permission ──────────────────────────────────────────────────
+
+  AppLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref HealthFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*/*
-
-  MeLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref MeFunction
+      FunctionName: !Ref AppFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*/*
 
@@ -227,7 +185,5 @@ Outputs:
   ApiBaseUrl:
     Value: !Sub 'https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/prod'
     Description: Invoke URL for prod stage.
-  RestApiId:
-    Value: !Ref RestApi
   StackName:
     Value: !Ref AWS::StackName
